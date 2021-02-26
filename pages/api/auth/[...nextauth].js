@@ -1,6 +1,8 @@
 import NextAuth from 'next-auth';
 import Providers from 'next-auth/providers';
 import jwt from 'jsonwebtoken';
+import { fetchMyQuery } from '../../../util/fetchGraphQL';
+import { addNewUser } from '../../../util/insertNewUser';
 
 // For more information on each option (and a full list of options) go to
 // https://next-auth.js.org/configuration/options
@@ -60,6 +62,7 @@ export default NextAuth({
         sub: token.sub,
         name: token.name,
         email: token.email,
+        picture: token.picture,
         iat: Date.now() / 1000,
         exp: Math.floor(Date.now() / 1000) + 24 * 60 * 60,
         'https://hasura.io/jwt/claims': {
@@ -109,10 +112,23 @@ export default NextAuth({
       return Promise.resolve(session);
     },
     async jwt(token, user, account, profile, isNewUser) {
-      console.log({ token });
-      console.log({ account });
-      console.log({ profile });
       const isUserSignedIn = user ? true : false;
+
+      // Fetch user from Hasura API
+      const { errors, data } = await fetchMyQuery(token.sub);
+      if (errors) {
+        console.log({ errors });
+      }
+
+      // Create user if not already in db
+      if (!data?.users_by_pk) {
+        // Do a mutatoin to store user data
+        const { errors, data } = await addNewUser(token.sub, token.name);
+        if (errors) {
+          console.log(errors);
+        }
+      }
+
       if (isUserSignedIn) {
         token.id = user.id;
       }
@@ -127,3 +143,11 @@ export default NextAuth({
   // Enable debug messages in the console if you are having problems
   debug: true,
 });
+
+// mutation MyMutation {
+//   insert_users_one(object: {id: "22605062", name: "Scott Tang", created_at: "22:18:06.814923"}, on_conflict: {constraint: users_pkey, update_columns: created_at}) {
+//     id
+//     name
+//     created_at
+//   }
+// }
